@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import { resolveTenantId } from '@/lib/api-auth'
 import { listPages } from '@/lib/models/page'
@@ -14,10 +15,18 @@ export default async function AdminHomePage({
   if (!session?.user) return null
 
   const { tenantId: requestedTenantId } = await searchParams
-  const tenantId = resolveTenantId(session.user, requestedTenantId)
-  const pages = await listPages(tenantId)
 
   const tenants = session.user.role === 'superadmin' ? await listTenants() : []
+
+  if (session.user.role === 'superadmin' && !requestedTenantId) {
+    if (tenants.length === 0) {
+      return <p className="text-sm text-gray-500">No tenants yet.</p>
+    }
+    redirect(`/admin?tenantId=${tenants[0]._id.toString()}`)
+  }
+
+  const tenantId = resolveTenantId(session.user, requestedTenantId)
+  const pages = await listPages(tenantId)
 
   return (
     <div className="flex flex-col gap-4">
