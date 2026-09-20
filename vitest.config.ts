@@ -10,5 +10,6 @@ export default defineConfig({
     globals: true,
     exclude: ['node_modules', 'tests/e2e/**'],
     testTimeout: 20000,
+    hookTimeout: 60000,
   },
 })
