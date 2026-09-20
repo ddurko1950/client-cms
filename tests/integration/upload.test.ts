@@ -32,4 +32,27 @@ describe('upload API', () => {
     const res = await POST(new Request('http://localhost', { method: 'POST', body: form }))
     expect(res.status).toBe(401)
   })
+
+  it('rejects an unsupported file type', async () => {
+    const { auth } = await import('@/lib/auth')
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', role: 'editor', tenantId: 't1', email: 'e@x.com' } } as never)
+
+    const { POST } = await import('@/app/api/upload/route')
+    const form = new FormData()
+    form.set('file', new File(['<script>alert(1)</script>'], 'evil.svg', { type: 'image/svg+xml' }))
+    const res = await POST(new Request('http://localhost', { method: 'POST', body: form }))
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a file larger than the size limit', async () => {
+    const { auth } = await import('@/lib/auth')
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', role: 'editor', tenantId: 't1', email: 'e@x.com' } } as never)
+
+    const { POST } = await import('@/app/api/upload/route')
+    const oversized = new Uint8Array(5 * 1024 * 1024 + 1)
+    const form = new FormData()
+    form.set('file', new File([oversized], 'big.png', { type: 'image/png' }))
+    const res = await POST(new Request('http://localhost', { method: 'POST', body: form }))
+    expect(res.status).toBe(400)
+  })
 })
