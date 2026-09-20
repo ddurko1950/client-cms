@@ -1407,7 +1407,7 @@ export async function GET() {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     const session = await requireSession()
     const tenantId = resolveTenantId(session)
@@ -1420,6 +1420,8 @@ export async function POST(req: NextRequest) {
   }
 }
 ```
+
+> **Plan note (post-Task-6-review ruling):** `POST` here is typed as `Request`, not `NextRequest` — this handler never reads `req.nextUrl`, and a reviewer confirmed narrowing to the plain `Request` type (which the brief's own given test file calls it with) is a correct type-only fix with no behavior change. The `GET` above stays `NextRequest`-free too since it also never touches `nextUrl`.
 
 - [ ] **Step 5: Write `src/app/api/pages/[pageId]/route.ts`**
 
@@ -1435,7 +1437,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ page
     const requestedTenantId = req.nextUrl.searchParams.get('tenantId') ?? undefined
     const tenantId = resolveTenantId(session, requestedTenantId)
     const { pageId } = await params
-    const page = await getPage(tenantId, new ObjectId(pageId))
+
+    let objectId: ObjectId
+    try {
+      objectId = new ObjectId(pageId)
+    } catch {
+      return NextResponse.json({ error: 'Invalid page id' }, { status: 400 })
+    }
+
+    const page = await getPage(tenantId, objectId)
     if (!page) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     return NextResponse.json({ page })
   } catch (err) {
@@ -1445,28 +1455,40 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ page
 }
 ```
 
+> **Plan note (post-Task-6-review ruling):** the routes below explicitly check `ObjectId` validity and page existence before calling into the model layer, instead of letting `saveDraft`'s thrown `Error('Page not found')` or a raw `BSONError` from an invalid id propagate as an unhandled 500. This was added as a fix after task review — see the plan's ledger for this run. Task 8's rollback route has the same underlying shape and should use the same explicit-check pattern.
+
 - [ ] **Step 6: Write `src/app/api/pages/[pageId]/draft/route.ts`**
 
 ```typescript
 import { NextRequest, NextResponse } from 'next/server'
 import { ObjectId } from 'mongodb'
 import { requireSession, resolveTenantId } from '@/lib/api-auth'
-import { saveDraft } from '@/lib/models/page'
+import { getPage, saveDraft } from '@/lib/models/page'
 import { pageContentSchema } from '@/lib/blocks/schema'
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ pageId: string }> }) {
+export async function POST(req: Request, { params }: { params: Promise<{ pageId: string }> }) {
   try {
     const session = await requireSession()
     const tenantId = resolveTenantId(session)
     const { pageId } = await params
-    const body = await req.json()
 
+    let objectId: ObjectId
+    try {
+      objectId = new ObjectId(pageId)
+    } catch {
+      return NextResponse.json({ error: 'Invalid page id' }, { status: 400 })
+    }
+
+    const existing = await getPage(tenantId, objectId)
+    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    const body = await req.json()
     const parsed = pageContentSchema.safeParse(body.content)
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
     }
 
-    const page = await saveDraft(tenantId, new ObjectId(pageId), parsed.data)
+    const page = await saveDraft(tenantId, objectId, parsed.data)
     return NextResponse.json({ page })
   } catch (err) {
     if (err instanceof Response) return err
