@@ -1846,6 +1846,8 @@ git commit -m "feat: version history and rollback API routes"
 - Consumes: `auth()` (Task 4), `GET /api/pages` (Task 6), `listTenants` (Task 2)
 - Produces: `<PageList pages={PageDoc[]} />`, `<TenantSwitcher tenants={{id: string; name: string}[]} currentTenantId={string} />` (superadmin only; renders nothing for editors)
 
+> **Plan note (post-Task-9-review ruling):** the original draft of `AdminHomePage` called `resolveTenantId(session.user, requestedTenantId)` directly, which throws an uncaught `Response` for a superadmin with no `?tenantId=` in the URL — and since login/the root redirect always land on bare `/admin`, that was the *only* path a superadmin ever hit, breaking the dashboard by default. Fixed below: for a superadmin with no `requestedTenantId`, auto-redirect to the first tenant (via Next.js's real `redirect()`, not the raw thrown `Response`), or render a "no tenants yet" message if none exist.
+
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
@@ -1989,6 +1991,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
 ```typescript
 // src/app/admin/page.tsx
+import { redirect } from 'next/navigation'
 import { auth } from '@/lib/auth'
 import { resolveTenantId } from '@/lib/api-auth'
 import { listPages } from '@/lib/models/page'
@@ -2005,10 +2008,18 @@ export default async function AdminHomePage({
   if (!session?.user) return null
 
   const { tenantId: requestedTenantId } = await searchParams
-  const tenantId = resolveTenantId(session.user, requestedTenantId)
-  const pages = await listPages(tenantId)
 
   const tenants = session.user.role === 'superadmin' ? await listTenants() : []
+
+  if (session.user.role === 'superadmin' && !requestedTenantId) {
+    if (tenants.length === 0) {
+      return <p className="text-sm text-gray-500">No tenants yet.</p>
+    }
+    redirect(`/admin?tenantId=${tenants[0]._id.toString()}`)
+  }
+
+  const tenantId = resolveTenantId(session.user, requestedTenantId)
+  const pages = await listPages(tenantId)
 
   return (
     <div className="flex flex-col gap-4">
