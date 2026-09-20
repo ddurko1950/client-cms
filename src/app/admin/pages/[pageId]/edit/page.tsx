@@ -37,7 +37,7 @@ export default async function EditPagePage({
           <PublishButton pageId={pageId} />
         </div>
       </div>
-      <BlockEditor pageId={pageId} initialBlocks={page.draft.blocks} />
+      <BlockEditor pageId={pageId} initialBlocks={page.draft.blocks} initialSeo={page.draft.seo} />
     </div>
   )
 }

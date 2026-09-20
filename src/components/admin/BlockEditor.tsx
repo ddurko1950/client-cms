@@ -2,12 +2,13 @@
 
 import { useState } from 'react'
 import { nanoid } from 'nanoid'
-import type { Block } from '@/lib/blocks/schema'
+import type { Block, Seo } from '@/lib/blocks/schema'
 import { HeroBlockForm } from './blocks/HeroBlockForm'
 import { TextBlockForm } from './blocks/TextBlockForm'
 import { ImageTextBlockForm } from './blocks/ImageTextBlockForm'
 import { ButtonBlockForm } from './blocks/ButtonBlockForm'
 import { GalleryBlockForm } from './blocks/GalleryBlockForm'
+import { SeoPanel } from './SeoPanel'
 
 const BLANK_BLOCKS: Record<Block['type'], () => Block> = {
   hero: () => ({ type: 'hero', id: nanoid(), headline: '' }),
@@ -35,13 +36,16 @@ function BlockForm({ block, onChange }: { block: Block; onChange: (b: Block) => 
 export function BlockEditor({
   pageId,
   initialBlocks,
+  initialSeo,
   onSaved,
 }: {
   pageId: string
   initialBlocks: Block[]
+  initialSeo?: Seo
   onSaved?: () => void
 }) {
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks)
+  const [seo, setSeo] = useState<Seo>(initialSeo ?? {})
   const [saving, setSaving] = useState(false)
 
   function addBlock(type: Block['type']) {
@@ -66,13 +70,18 @@ export function BlockEditor({
     })
   }
 
+  const bodyText = blocks
+    .map((b) => ('body' in b ? b.body : 'headline' in b ? b.headline : ''))
+    .filter(Boolean)
+    .join(' ')
+
   async function saveDraft() {
     setSaving(true)
     try {
       await fetch(`/api/pages/${pageId}/draft`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content: { blocks, seo: {} } }),
+        body: JSON.stringify({ content: { blocks, seo } }),
       })
       onSaved?.()
     } finally {
@@ -106,6 +115,8 @@ export function BlockEditor({
           </div>
         </div>
       ))}
+
+      <SeoPanel pageId={pageId} initialSeo={seo} bodyText={bodyText} onChange={setSeo} />
 
       <button
         type="button"
