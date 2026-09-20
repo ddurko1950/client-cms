@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { ObjectId } from 'mongodb'
 import { requireSession, resolveTenantId } from '@/lib/api-auth'
-import { saveDraft } from '@/lib/models/page'
+import { getPage, saveDraft } from '@/lib/models/page'
 import { pageContentSchema } from '@/lib/blocks/schema'
 
 export async function POST(req: Request, { params }: { params: Promise<{ pageId: string }> }) {
@@ -9,6 +9,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ pageId:
     const session = await requireSession()
     const tenantId = resolveTenantId(session)
     const { pageId } = await params
+
+    let objectId: ObjectId
+    try {
+      objectId = new ObjectId(pageId)
+    } catch {
+      return NextResponse.json({ error: 'Invalid page id' }, { status: 400 })
+    }
+
+    const existing = await getPage(tenantId, objectId)
+    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
     const body = await req.json()
 
     const parsed = pageContentSchema.safeParse(body.content)
@@ -16,7 +27,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ pageId:
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
     }
 
-    const page = await saveDraft(tenantId, new ObjectId(pageId), parsed.data)
+    const page = await saveDraft(tenantId, objectId, parsed.data)
     return NextResponse.json({ page })
   } catch (err) {
     if (err instanceof Response) return err

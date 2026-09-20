@@ -9,7 +9,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ page
     const requestedTenantId = req.nextUrl.searchParams.get('tenantId') ?? undefined
     const tenantId = resolveTenantId(session, requestedTenantId)
     const { pageId } = await params
-    const page = await getPage(tenantId, new ObjectId(pageId))
+
+    let objectId: ObjectId
+    try {
+      objectId = new ObjectId(pageId)
+    } catch {
+      return NextResponse.json({ error: 'Invalid page id' }, { status: 400 })
+    }
+
+    const page = await getPage(tenantId, objectId)
     if (!page) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     return NextResponse.json({ page })
   } catch (err) {

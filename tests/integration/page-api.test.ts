@@ -59,4 +59,41 @@ describe('page API', () => {
     const res = await listHandler()
     expect(res.status).toBe(401)
   })
+
+  it('returns 404 when saving a draft for a nonexistent pageId', async () => {
+    const { auth } = await import('@/lib/auth')
+    const { createTenant } = await import('@/lib/models/tenant')
+    const { ObjectId } = await import('mongodb')
+    const tenant = await createTenant({ name: 'Gamma', customDomain: 'gamma.example.com' })
+
+    vi.mocked(auth).mockResolvedValue({
+      user: { id: 'u3', email: 'e@gamma.com', role: 'editor', tenantId: tenant._id.toString() },
+    } as never)
+
+    const { POST: draftHandler } = await import('@/app/api/pages/[pageId]/draft/route')
+    const req = new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ content: { blocks: [], seo: {} } }),
+    })
+    const res = await draftHandler(req, { params: Promise.resolve({ pageId: new ObjectId().toString() }) })
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 400 for a malformed pageId', async () => {
+    const { auth } = await import('@/lib/auth')
+    const { createTenant } = await import('@/lib/models/tenant')
+    const tenant = await createTenant({ name: 'Delta', customDomain: 'delta.example.com' })
+
+    vi.mocked(auth).mockResolvedValue({
+      user: { id: 'u4', email: 'e@delta.com', role: 'editor', tenantId: tenant._id.toString() },
+    } as never)
+
+    const { POST: draftHandler } = await import('@/app/api/pages/[pageId]/draft/route')
+    const req = new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ content: { blocks: [], seo: {} } }),
+    })
+    const res = await draftHandler(req, { params: Promise.resolve({ pageId: 'not-a-valid-id' }) })
+    expect(res.status).toBe(400)
+  })
 })
