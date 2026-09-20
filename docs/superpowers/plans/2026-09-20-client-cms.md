@@ -1639,10 +1639,10 @@ git commit -m "feat: publish API route with re-validation and version snapshotti
 - Test: `tests/integration/rollback.test.ts`
 
 **Interfaces:**
-- Consumes: `requireSession/resolveTenantId` (Task 6), `listVersions` (Task 2), `rollbackPage` (Task 2)
+- Consumes: `requireSession/resolveTenantId` (Task 6), `listVersions/getVersion` (Task 2), `getPage/rollbackPage` (Task 2)
 - Produces:
-  - `GET /api/pages/:pageId/versions` → `{ versions: PageVersionDoc[] }`
-  - `POST /api/pages/:pageId/rollback` body `{ versionNumber: number }` → `{ page: PageDoc }`
+  - `GET /api/pages/:pageId/versions` → `{ versions: PageVersionDoc[] }` (400 on malformed `pageId`)
+  - `POST /api/pages/:pageId/rollback` body `{ versionNumber: number }` → `{ page: PageDoc }` (400 on malformed `pageId`, 404 if the page or the target version doesn't exist)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1719,7 +1719,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ pageId:
     const session = await requireSession()
     const tenantId = resolveTenantId(session)
     const { pageId } = await params
-    const versions = await listVersions(tenantId, new ObjectId(pageId))
+
+    let objectId: ObjectId
+    try {
+      objectId = new ObjectId(pageId)
+    } catch {
+      return NextResponse.json({ error: 'Invalid page id' }, { status: 400 })
+    }
+
+    const versions = await listVersions(tenantId, objectId)
     return NextResponse.json({ versions })
   } catch (err) {
     if (err instanceof Response) return err
@@ -1728,22 +1736,39 @@ export async function GET(_req: Request, { params }: { params: Promise<{ pageId:
 }
 ```
 
+> **Plan note (proactive hardening after Task 6/7 review):** both routes below explicitly validate the `pageId` and check existence before calling into the model layer, instead of letting an invalid `ObjectId` or a `rollbackPage`/`getVersion` "not found" `Error` propagate as an unhandled 500 — the same pattern Task 6's review required and Task 7's review flagged as still-missing elsewhere. Applying it here now rather than waiting for another review cycle to catch it.
+
 - [ ] **Step 4: Write `src/app/api/pages/[pageId]/rollback/route.ts`**
 
 ```typescript
 import { NextResponse } from 'next/server'
 import { ObjectId } from 'mongodb'
 import { requireSession, resolveTenantId } from '@/lib/api-auth'
-import { rollbackPage } from '@/lib/models/page'
+import { getPage, rollbackPage } from '@/lib/models/page'
+import { getVersion } from '@/lib/models/pageVersion'
 
 export async function POST(req: Request, { params }: { params: Promise<{ pageId: string }> }) {
   try {
     const session = await requireSession()
     const tenantId = resolveTenantId(session)
     const { pageId } = await params
+
+    let objectId: ObjectId
+    try {
+      objectId = new ObjectId(pageId)
+    } catch {
+      return NextResponse.json({ error: 'Invalid page id' }, { status: 400 })
+    }
+
+    const existing = await getPage(tenantId, objectId)
+    if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
     const { versionNumber } = (await req.json()) as { versionNumber: number }
 
-    const page = await rollbackPage(tenantId, new ObjectId(pageId), versionNumber, new ObjectId(session.id))
+    const targetVersion = await getVersion(tenantId, objectId, versionNumber)
+    if (!targetVersion) return NextResponse.json({ error: 'Version not found' }, { status: 404 })
+
+    const page = await rollbackPage(tenantId, objectId, versionNumber, new ObjectId(session.id))
     return NextResponse.json({ page })
   } catch (err) {
     if (err instanceof Response) return err
@@ -1752,12 +1777,56 @@ export async function POST(req: Request, { params }: { params: Promise<{ pageId:
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 5: Add tests for the invalid-id and not-found paths**
+
+Append two more `it(...)` blocks inside the existing `describe('versions and rollback API', ...)` in `tests/integration/rollback.test.ts`:
+
+```typescript
+  it('returns 400 for a malformed pageId on rollback', async () => {
+    const { auth } = await import('@/lib/auth')
+    const { createTenant } = await import('@/lib/models/tenant')
+    const tenant = await createTenant({ name: 'Malformed', customDomain: 'malformed.example.com' })
+
+    vi.mocked(auth).mockResolvedValue({
+      user: { id: new ObjectId().toString(), email: 'e@malformed.com', role: 'editor', tenantId: tenant._id.toString() },
+    } as never)
+
+    const { POST: rollbackHandler } = await import('@/app/api/pages/[pageId]/rollback/route')
+    const req = new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ versionNumber: 1 }),
+    })
+    const res = await rollbackHandler(req, { params: Promise.resolve({ pageId: 'not-a-valid-id' }) })
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when rolling back a nonexistent version number', async () => {
+    const { auth } = await import('@/lib/auth')
+    const { createTenant } = await import('@/lib/models/tenant')
+    const { createPage } = await import('@/lib/models/page')
+    const tenant = await createTenant({ name: 'NoVersion', customDomain: 'noversion.example.com' })
+    const page = await createPage({ tenantId: tenant._id, slug: 'home', title: 'Home' })
+
+    vi.mocked(auth).mockResolvedValue({
+      user: { id: new ObjectId().toString(), email: 'e@noversion.com', role: 'editor', tenantId: tenant._id.toString() },
+    } as never)
+
+    const { POST: rollbackHandler } = await import('@/app/api/pages/[pageId]/rollback/route')
+    const req = new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({ versionNumber: 99 }),
+    })
+    const res = await rollbackHandler(req, { params: Promise.resolve({ pageId: page._id.toString() }) })
+    expect(res.status).toBe(404)
+  })
+```
+
+- [ ] **Step 6: Run test to verify it passes**
 
 Run: `npm test -- tests/integration/rollback.test.ts`
-Expected: PASS (1 test)
+Expected: PASS (3 tests)
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/app/api/pages/[pageId]/versions src/app/api/pages/[pageId]/rollback tests/integration/rollback.test.ts
