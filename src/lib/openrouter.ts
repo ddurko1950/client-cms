@@ -25,6 +25,26 @@ export async function suggestSeo(input: { title: string; bodyText: string }): Pr
   if (!res.ok) throw new Error(`OpenRouter request failed: ${res.status}`)
 
   const data = await res.json()
-  const content = data.choices[0].message.content as string
-  return JSON.parse(content)
+  const content = data?.choices?.[0]?.message?.content
+  if (typeof content !== 'string') {
+    throw new Error('OpenRouter response missing message content')
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    throw new Error('OpenRouter response was not valid JSON')
+  }
+
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    typeof (parsed as { title?: unknown }).title !== 'string' ||
+    typeof (parsed as { description?: unknown }).description !== 'string'
+  ) {
+    throw new Error('OpenRouter response did not include a title and description string')
+  }
+
+  return { title: (parsed as { title: string }).title, description: (parsed as { description: string }).description }
 }

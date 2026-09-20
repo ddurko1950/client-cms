@@ -10,6 +10,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(suggestion)
   } catch (err) {
     if (err instanceof Response) return err
+    if (err instanceof Error) {
+      return NextResponse.json({ error: err.message }, { status: 502 })
+    }
     throw err
   }
 }
