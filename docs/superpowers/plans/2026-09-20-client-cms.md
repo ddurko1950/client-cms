@@ -3162,15 +3162,70 @@ export async function suggestSeo(input: { title: string; bodyText: string }): Pr
   if (!res.ok) throw new Error(`OpenRouter request failed: ${res.status}`)
 
   const data = await res.json()
-  const content = data.choices[0].message.content as string
-  return JSON.parse(content)
+  const content = data?.choices?.[0]?.message?.content
+  if (typeof content !== 'string') {
+    throw new Error('OpenRouter response missing message content')
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(content)
+  } catch {
+    throw new Error('OpenRouter response was not valid JSON')
+  }
+
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    typeof (parsed as { title?: unknown }).title !== 'string' ||
+    typeof (parsed as { description?: unknown }).description !== 'string'
+  ) {
+    throw new Error('OpenRouter response did not include a title and description string')
+  }
+
+  return { title: (parsed as { title: string }).title, description: (parsed as { description: string }).description }
 }
 ```
+
+> **Plan note (post-Task-14-review fix):** the original draft did `const content = data.choices[0].message.content as string; return JSON.parse(content)` with no validation — an automated review flagged this as an unhandled-crash risk (a "when, not if" for a feature that calls a third-party LLM): malformed or moderation-empty responses would throw a raw `SyntaxError`/`TypeError`. Fixed with explicit shape checks at each step, each throwing a descriptive `Error`.
 
 - [ ] **Step 4: Run the unit test to verify it passes**
 
 Run: `npm test -- tests/unit/openrouter.test.ts`
 Expected: PASS (1 test)
+
+- [ ] **Step 4b: Add tests for malformed OpenRouter responses**
+
+Append inside the existing `describe('suggestSeo', ...)` in `tests/unit/openrouter.test.ts`:
+
+```typescript
+  it('throws a descriptive error when the response is not valid JSON', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'Sure, here you go: {title: oops}' } }] }),
+    } as never)
+
+    const { suggestSeo } = await import('@/lib/openrouter')
+    await expect(suggestSeo({ title: 'About us', bodyText: 'We build things.' })).rejects.toThrow(
+      'OpenRouter response was not valid JSON'
+    )
+  })
+
+  it('throws a descriptive error when the parsed response is missing title/description', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({ title: 'Only a title' }) } }] }),
+    } as never)
+
+    const { suggestSeo } = await import('@/lib/openrouter')
+    await expect(suggestSeo({ title: 'About us', bodyText: 'We build things.' })).rejects.toThrow(
+      'OpenRouter response did not include a title and description string'
+    )
+  })
+```
+
+Run: `npm test -- tests/unit/openrouter.test.ts`
+Expected: PASS (3 tests)
 
 - [ ] **Step 5: Write `src/app/api/seo-suggest/route.ts`**
 
@@ -3187,10 +3242,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(suggestion)
   } catch (err) {
     if (err instanceof Response) return err
+    if (err instanceof Error) {
+      return NextResponse.json({ error: err.message }, { status: 502 })
+    }
     throw err
   }
 }
 ```
+
+> **Plan note (post-Task-14-review fix):** any `Error` thrown by `suggestSeo` (malformed/empty LLM response) now maps to a clean `502` with a message, instead of propagating as an unhandled 500.
 
 - [ ] **Step 6: Write `src/components/admin/SeoPanel.tsx`**
 
