@@ -68,4 +68,17 @@ describe('middleware', () => {
     expect(res.status).toBe(404)
     expect(res.headers.get('x-middleware-rewrite')).toBeNull()
   })
+
+  it('allows a /_sites request through when it carries the Draft Mode bypass cookie (the /api/preview redirect flow)', async () => {
+    const { middleware } = await import('../../middleware')
+    const req = new NextRequest('https://client-cms.vercel.app/_sites/someTenantId/someSlug', {
+      headers: {
+        host: 'client-cms.vercel.app',
+        cookie: '__prerender_bypass=some-value',
+      },
+    })
+    const res = await middleware(req)
+
+    expect(res.status).not.toBe(404)
+  })
 })
