@@ -8,6 +8,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    setupFiles: ['./tests/setup.ts'],
     exclude: ['node_modules', 'tests/e2e/**'],
     testTimeout: 20000,
     hookTimeout: 60000,
