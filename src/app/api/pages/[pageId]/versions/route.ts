@@ -1,18 +1,16 @@
-import { NextResponse } from 'next/server'
-import { ObjectId } from 'mongodb'
-import { requireSession, resolveTenantId } from '@/lib/api-auth'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireSession, resolveTenantId, toObjectId } from '@/lib/api-auth'
 import { listVersions } from '@/lib/models/pageVersion'
 
-export async function GET(_req: Request, { params }: { params: Promise<{ pageId: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ pageId: string }> }) {
   try {
     const session = await requireSession()
-    const tenantId = resolveTenantId(session)
+    const requestedTenantId = req.nextUrl.searchParams.get('tenantId') ?? undefined
+    const tenantId = resolveTenantId(session, requestedTenantId)
     const { pageId } = await params
 
-    let objectId: ObjectId
-    try {
-      objectId = new ObjectId(pageId)
-    } catch {
+    const objectId = toObjectId(pageId)
+    if (!objectId) {
       return NextResponse.json({ error: 'Invalid page id' }, { status: 400 })
     }
 

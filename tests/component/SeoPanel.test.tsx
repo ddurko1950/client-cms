@@ -13,7 +13,7 @@ beforeEach(() => {
 
 describe('SeoPanel', () => {
   it('fetches a suggestion and only applies it once accepted', async () => {
-    render(<SeoPanel pageId="p1" initialSeo={{}} bodyText="Some page copy" />)
+    render(<SeoPanel initialSeo={{}} bodyText="Some page copy" />)
 
     fireEvent.click(screen.getByRole('button', { name: /suggest with ai/i }))
 

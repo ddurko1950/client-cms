@@ -1,6 +1,6 @@
-import { ObjectId } from 'mongodb'
+import { notFound } from 'next/navigation'
 import { auth } from '@/lib/auth'
-import { resolveTenantId } from '@/lib/api-auth'
+import { resolveTenantId, toObjectId } from '@/lib/api-auth'
 import { listVersions } from '@/lib/models/pageVersion'
 import { VersionHistory } from '@/components/admin/VersionHistory'
 
@@ -17,11 +17,16 @@ export default async function VersionsPage({
   const { pageId } = await params
   const { tenantId: requestedTenantId } = await searchParams
   const tenantId = resolveTenantId(session.user, requestedTenantId)
-  const versions = await listVersions(tenantId, new ObjectId(pageId))
+
+  const pageObjectId = toObjectId(pageId)
+  if (!pageObjectId) notFound()
+
+  const versions = await listVersions(tenantId, pageObjectId)
 
   return (
     <VersionHistory
       pageId={pageId}
+      tenantId={tenantId.toString()}
       versions={versions.map((v) => ({ versionNumber: v.versionNumber, publishedAt: v.publishedAt.toISOString() }))}
     />
   )

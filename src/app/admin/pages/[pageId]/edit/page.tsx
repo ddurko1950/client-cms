@@ -1,8 +1,7 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ObjectId } from 'mongodb'
 import { auth } from '@/lib/auth'
-import { resolveTenantId } from '@/lib/api-auth'
+import { resolveTenantId, toObjectId } from '@/lib/api-auth'
 import { getPage } from '@/lib/models/page'
 import { BlockEditor } from '@/components/admin/BlockEditor'
 import { PublishButton } from '@/components/admin/PublishButton'
@@ -20,7 +19,11 @@ export default async function EditPagePage({
   const { pageId } = await params
   const { tenantId: requestedTenantId } = await searchParams
   const tenantId = resolveTenantId(session.user, requestedTenantId)
-  const page = await getPage(tenantId, new ObjectId(pageId))
+
+  const pageObjectId = toObjectId(pageId)
+  if (!pageObjectId) notFound()
+
+  const page = await getPage(tenantId, pageObjectId)
   if (!page) notFound()
 
   return (
@@ -34,10 +37,23 @@ export default async function EditPagePage({
           >
             Version history
           </Link>
-          <PublishButton pageId={pageId} />
+          <a
+            href={`/api/preview?pageId=${pageId}&tenantId=${tenantId.toString()}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm underline"
+          >
+            Preview
+          </a>
+          <PublishButton pageId={pageId} tenantId={tenantId.toString()} />
         </div>
       </div>
-      <BlockEditor pageId={pageId} initialBlocks={page.draft.blocks} initialSeo={page.draft.seo} />
+      <BlockEditor
+        pageId={pageId}
+        tenantId={tenantId.toString()}
+        initialBlocks={page.draft.blocks}
+        initialSeo={page.draft.seo}
+      />
     </div>
   )
 }

@@ -4,6 +4,7 @@ import { resolveTenantId } from '@/lib/api-auth'
 import { listPages } from '@/lib/models/page'
 import { listTenants } from '@/lib/models/tenant'
 import { PageList } from '@/components/admin/PageList'
+import { CreatePageForm } from '@/components/admin/CreatePageForm'
 import { TenantSwitcher } from '@/components/admin/TenantSwitcher'
 
 export default async function AdminHomePage({
@@ -36,6 +37,7 @@ export default async function AdminHomePage({
           currentTenantId={tenantId.toString()}
         />
       )}
+      <CreatePageForm tenantId={tenantId.toString()} />
       <PageList
         pages={pages.map((p) => ({
           _id: p._id.toString(),

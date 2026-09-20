@@ -19,7 +19,19 @@ function getClientPromise(): Promise<MongoClient> {
   return global._mongoClientPromise
 }
 
+let indexesEnsured = false
+
 export async function getDb(): Promise<Db> {
   const client = await getClientPromise()
-  return client.db()
+  const db = client.db()
+  if (!indexesEnsured) {
+    indexesEnsured = true
+    await Promise.all([
+      db.collection('tenants').createIndex({ customDomain: 1 }, { unique: true }),
+      db.collection('pages').createIndex({ tenantId: 1, slug: 1 }, { unique: true }),
+      db.collection('pageVersions').createIndex({ pageId: 1, versionNumber: 1 }, { unique: true }),
+      db.collection('users').createIndex({ email: 1 }, { unique: true }),
+    ])
+  }
+  return db
 }

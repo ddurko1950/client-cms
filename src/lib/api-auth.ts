@@ -13,6 +13,14 @@ export async function requireSession(): Promise<SessionUser> {
   return session.user
 }
 
+export function toObjectId(id: string): ObjectId | null {
+  try {
+    return new ObjectId(id)
+  } catch {
+    return null
+  }
+}
+
 export function resolveTenantId(session: SessionUser, requestedTenantId?: string): ObjectId {
   if (session.role === 'superadmin') {
     if (!requestedTenantId) {
@@ -20,7 +28,11 @@ export function resolveTenantId(session: SessionUser, requestedTenantId?: string
         status: 400,
       })
     }
-    return new ObjectId(requestedTenantId)
+    const objectId = toObjectId(requestedTenantId)
+    if (!objectId) {
+      throw new Response(JSON.stringify({ error: 'Invalid tenantId' }), { status: 400 })
+    }
+    return objectId
   }
 
   if (!session.tenantId) {

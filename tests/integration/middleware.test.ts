@@ -43,4 +43,29 @@ describe('middleware', () => {
       `https://beta.example.com/_sites/${tenant._id.toString()}/index`
     )
   })
+
+  it('404s a direct request to /_sites on the admin domain', async () => {
+    const { middleware } = await import('../../middleware')
+    const req = new NextRequest('https://client-cms.vercel.app/_sites/someTenantId/someSlug', {
+      headers: { host: 'client-cms.vercel.app' },
+    })
+    const res = await middleware(req)
+
+    expect(res.status).toBe(404)
+    expect(res.headers.get('x-middleware-rewrite')).toBeNull()
+  })
+
+  it('404s a direct request to /_sites even on a known tenant domain', async () => {
+    const { createTenant } = await import('@/lib/models/tenant')
+    const tenant = await createTenant({ name: 'Gamma', customDomain: 'gamma.example.com' })
+
+    const { middleware } = await import('../../middleware')
+    const req = new NextRequest(`https://gamma.example.com/_sites/${tenant._id.toString()}/home`, {
+      headers: { host: 'gamma.example.com' },
+    })
+    const res = await middleware(req)
+
+    expect(res.status).toBe(404)
+    expect(res.headers.get('x-middleware-rewrite')).toBeNull()
+  })
 })

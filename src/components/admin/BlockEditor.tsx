@@ -35,11 +35,13 @@ function BlockForm({ block, onChange }: { block: Block; onChange: (b: Block) => 
 
 export function BlockEditor({
   pageId,
+  tenantId,
   initialBlocks,
   initialSeo,
   onSaved,
 }: {
   pageId: string
+  tenantId: string
   initialBlocks: Block[]
   initialSeo?: Seo
   onSaved?: () => void
@@ -47,6 +49,7 @@ export function BlockEditor({
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks)
   const [seo, setSeo] = useState<Seo>(initialSeo ?? {})
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   function addBlock(type: Block['type']) {
     setBlocks((prev) => [...prev, BLANK_BLOCKS[type]()])
@@ -77,12 +80,18 @@ export function BlockEditor({
 
   async function saveDraft() {
     setSaving(true)
+    setError(null)
     try {
-      await fetch(`/api/pages/${pageId}/draft`, {
+      const res = await fetch(`/api/pages/${pageId}/draft?tenantId=${tenantId}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ content: { blocks, seo } }),
       })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        setError(typeof body?.error === 'string' ? body.error : 'Could not save the draft.')
+        return
+      }
       onSaved?.()
     } finally {
       setSaving(false)
@@ -116,7 +125,7 @@ export function BlockEditor({
         </div>
       ))}
 
-      <SeoPanel pageId={pageId} initialSeo={seo} bodyText={bodyText} onChange={setSeo} />
+      <SeoPanel initialSeo={seo} bodyText={bodyText} onChange={setSeo} />
 
       <button
         type="button"
@@ -126,6 +135,7 @@ export function BlockEditor({
       >
         {saving ? 'Saving…' : 'Save draft'}
       </button>
+      {error && <p className="text-sm text-red-600">{error}</p>}
     </div>
   )
 }

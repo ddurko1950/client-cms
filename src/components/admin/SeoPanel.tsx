@@ -1,20 +1,20 @@
 'use client'
 
 import { useState } from 'react'
-import type { Seo } from '@/lib/blocks/schema'
+import { seoSchema, type Seo } from '@/lib/blocks/schema'
 
 export function SeoPanel({
   bodyText,
   initialSeo,
   onChange,
 }: {
-  pageId: string
   initialSeo: Seo
   bodyText: string
   onChange?: (seo: Seo) => void
 }) {
   const [seo, setSeo] = useState<Seo>(initialSeo)
   const [suggestion, setSuggestion] = useState<Seo | null>(null)
+  const [suggestError, setSuggestError] = useState<string | null>(null)
 
   function update(next: Seo) {
     setSeo(next)
@@ -22,12 +22,23 @@ export function SeoPanel({
   }
 
   async function requestSuggestion() {
+    setSuggestError(null)
     const res = await fetch('/api/seo-suggest', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ title: seo.title ?? '', bodyText }),
     })
-    setSuggestion(await res.json())
+    if (!res.ok) {
+      setSuggestError('Could not generate a suggestion. Try again.')
+      return
+    }
+    const body = await res.json()
+    const parsed = seoSchema.safeParse(body)
+    if (!parsed.success) {
+      setSuggestError('Received an invalid suggestion.')
+      return
+    }
+    setSuggestion(parsed.data)
   }
 
   return (
@@ -54,6 +65,7 @@ export function SeoPanel({
       <button type="button" onClick={requestSuggestion} className="self-start text-sm underline">
         Suggest with AI
       </button>
+      {suggestError && <p className="text-sm text-red-600">{suggestError}</p>}
 
       {suggestion && (
         <div className="border p-2 text-sm">

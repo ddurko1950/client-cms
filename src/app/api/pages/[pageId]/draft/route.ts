@@ -1,13 +1,14 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { ObjectId } from 'mongodb'
 import { requireSession, resolveTenantId } from '@/lib/api-auth'
 import { getPage, saveDraft } from '@/lib/models/page'
 import { pageContentSchema } from '@/lib/blocks/schema'
 
-export async function POST(req: Request, { params }: { params: Promise<{ pageId: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ pageId: string }> }) {
   try {
     const session = await requireSession()
-    const tenantId = resolveTenantId(session)
+    const requestedTenantId = req.nextUrl.searchParams.get('tenantId') ?? undefined
+    const tenantId = resolveTenantId(session, requestedTenantId)
     const { pageId } = await params
 
     let objectId: ObjectId

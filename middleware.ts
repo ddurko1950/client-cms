@@ -6,6 +6,10 @@ export const config = {
 }
 
 export async function middleware(req: NextRequest) {
+  if (req.nextUrl.pathname.startsWith('/_sites')) {
+    return new NextResponse('Not found', { status: 404 })
+  }
+
   const host = req.headers.get('host') ?? ''
   const tenant = await getTenantByDomain(host)
 

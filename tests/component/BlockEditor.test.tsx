@@ -13,7 +13,7 @@ beforeEach(() => {
 
 describe('BlockEditor', () => {
   it('adds a text block and edits its content', () => {
-    render(<BlockEditor pageId="p1" initialBlocks={[]} />)
+    render(<BlockEditor pageId="p1" tenantId="t1" initialBlocks={[]} />)
 
     fireEvent.click(screen.getByRole('button', { name: /add text block/i }))
     const textarea = screen.getByLabelText(/body/i)
@@ -23,7 +23,7 @@ describe('BlockEditor', () => {
   })
 
   it('removes a block', () => {
-    render(<BlockEditor pageId="p1" initialBlocks={[]} />)
+    render(<BlockEditor pageId="p1" tenantId="t1" initialBlocks={[]} />)
     fireEvent.click(screen.getByRole('button', { name: /add text block/i }))
     expect(screen.getByLabelText(/body/i)).toBeInTheDocument()
 
@@ -32,12 +32,12 @@ describe('BlockEditor', () => {
   })
 
   it('saves the draft via the API on "Save draft"', async () => {
-    render(<BlockEditor pageId="p1" initialBlocks={[]} />)
+    render(<BlockEditor pageId="p1" tenantId="t1" initialBlocks={[]} />)
     fireEvent.click(screen.getByRole('button', { name: /save draft/i }))
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith(
-        '/api/pages/p1/draft',
+        '/api/pages/p1/draft?tenantId=t1',
         expect.objectContaining({ method: 'POST' })
       )
     })
