@@ -1844,7 +1844,9 @@ git commit -m "feat: version history and rollback API routes"
 
 **Interfaces:**
 - Consumes: `auth()` (Task 4), `GET /api/pages` (Task 6), `listTenants` (Task 2)
-- Produces: `<PageList pages={PageDoc[]} />`, `<TenantSwitcher tenants={{id: string; name: string}[]} currentTenantId={string} />` (superadmin only; renders nothing for editors)
+- Produces: `<PageList pages={PageDoc[]} tenantId={string} />`, `<TenantSwitcher tenants={{id: string; name: string}[]} currentTenantId={string} />` (superadmin only; renders nothing for editors)
+
+> **Plan note (post-Task-10-review ruling):** `PageList` also takes an optional `tenantId` prop, threaded into its "Edit" link as `?tenantId=<id>` — without it, `AdminHomePage`'s auto-selected tenant is never carried to the edit page, and a superadmin's only click-through path (dashboard → Edit) hit the exact same uncaught-`Response` crash this file was already fixed for once. `AdminHomePage` passes its resolved `tenantId` through unconditionally (harmless for editors too, since it just echoes their own session tenant).
 
 > **Plan note (post-Task-9-review ruling):** the original draft of `AdminHomePage` called `resolveTenantId(session.user, requestedTenantId)` directly, which throws an uncaught `Response` for a superadmin with no `?tenantId=` in the URL — and since login/the root redirect always land on bare `/admin`, that was the *only* path a superadmin ever hit, breaking the dashboard by default. Fixed below: for a superadmin with no `requestedTenantId`, auto-redirect to the first tenant (via Next.js's real `redirect()`, not the raw thrown `Response`), or render a "no tenants yet" message if none exist.
 
@@ -1893,7 +1895,7 @@ interface PageListItem {
   publishedVersion: number | null
 }
 
-export function PageList({ pages }: { pages: PageListItem[] }) {
+export function PageList({ pages, tenantId }: { pages: PageListItem[]; tenantId?: string }) {
   return (
     <ul className="divide-y">
       {pages.map((page) => (
@@ -1905,7 +1907,10 @@ export function PageList({ pages }: { pages: PageListItem[] }) {
               {page.publishedVersion ? `Published v${page.publishedVersion}` : 'Unpublished'}
             </p>
           </div>
-          <Link href={`/admin/pages/${page._id}/edit`} className="text-sm underline">
+          <Link
+            href={tenantId ? `/admin/pages/${page._id}/edit?tenantId=${tenantId}` : `/admin/pages/${page._id}/edit`}
+            className="text-sm underline"
+          >
             Edit
           </Link>
         </li>
@@ -2036,6 +2041,7 @@ export default async function AdminHomePage({
           title: p.title,
           publishedVersion: p.publishedVersion,
         }))}
+        tenantId={tenantId.toString()}
       />
     </div>
   )
@@ -2499,12 +2505,19 @@ import { getPage } from '@/lib/models/page'
 import { BlockEditor } from '@/components/admin/BlockEditor'
 import { PublishButton } from '@/components/admin/PublishButton'
 
-export default async function EditPagePage({ params }: { params: Promise<{ pageId: string }> }) {
+export default async function EditPagePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ pageId: string }>
+  searchParams: Promise<{ tenantId?: string }>
+}) {
   const session = await auth()
   if (!session?.user) return null
 
   const { pageId } = await params
-  const tenantId = resolveTenantId(session.user)
+  const { tenantId: requestedTenantId } = await searchParams
+  const tenantId = resolveTenantId(session.user, requestedTenantId)
   const page = await getPage(tenantId, new ObjectId(pageId))
   if (!page) notFound()
 
@@ -2513,7 +2526,10 @@ export default async function EditPagePage({ params }: { params: Promise<{ pageI
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">{page.title}</h2>
         <div className="flex items-center gap-3">
-          <Link href={`/admin/pages/${pageId}/versions`} className="text-sm underline">
+          <Link
+            href={`/admin/pages/${pageId}/versions?tenantId=${tenantId.toString()}`}
+            className="text-sm underline"
+          >
             Version history
           </Link>
           <PublishButton pageId={pageId} />
@@ -2524,6 +2540,8 @@ export default async function EditPagePage({ params }: { params: Promise<{ pageI
   )
 }
 ```
+
+> **Plan note (post-Task-10-review ruling):** the original draft called `resolveTenantId(session.user)` with no `requestedTenantId` — since `PageList`'s Edit link (Task 9) never carried a `tenantId`, this was superadmin's *only* click-through path to this page, and it crashed 100% of the time, the same failure class Task 9 was already fixed for once. Now accepts `?tenantId=` via `searchParams` (mirroring `AdminHomePage`'s pattern) and forwards its resolved `tenantId` into the "Version history" link so Task 13's page doesn't hit the identical bug rolling forward.
 
 - [ ] **Step 8: Verify typecheck**
 
@@ -2828,6 +2846,8 @@ git commit -m "feat: public site renderer with Draft Mode preview"
 - Consumes: `GET /api/pages/:pageId/versions`, `POST /api/pages/:pageId/rollback` (Task 8), `listVersions` (Task 2), `resolveTenantId` (Task 6)
 - Produces: `<VersionHistory pageId={string} versions={{versionNumber: number; publishedAt: string}[]} />`
 
+> **Plan note (proactive fix carried from Task 10's review):** this page accepts `?tenantId=` via `searchParams` from the start, since Task 10's edit page now links here as `/admin/pages/{pageId}/versions?tenantId=<id>` — without this, a superadmin clicking "Version history" would hit the identical uncaught-`Response` bug that Tasks 9 and 10 both had to fix.
+
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
@@ -2923,12 +2943,19 @@ import { resolveTenantId } from '@/lib/api-auth'
 import { listVersions } from '@/lib/models/pageVersion'
 import { VersionHistory } from '@/components/admin/VersionHistory'
 
-export default async function VersionsPage({ params }: { params: Promise<{ pageId: string }> }) {
+export default async function VersionsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ pageId: string }>
+  searchParams: Promise<{ tenantId?: string }>
+}) {
   const session = await auth()
   if (!session?.user) return null
 
   const { pageId } = await params
-  const tenantId = resolveTenantId(session.user)
+  const { tenantId: requestedTenantId } = await searchParams
+  const tenantId = resolveTenantId(session.user, requestedTenantId)
   const versions = await listVersions(tenantId, new ObjectId(pageId))
 
   return (
