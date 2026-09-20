@@ -2848,6 +2848,8 @@ git commit -m "feat: version history UI with one-click rollback"
 - Create: `src/lib/openrouter.ts`
 - Create: `src/app/api/seo-suggest/route.ts`
 - Create: `src/components/admin/SeoPanel.tsx`
+- Modify: `src/components/admin/BlockEditor.tsx` (Task 10) — mount `SeoPanel`, lift `seo` into state, stop hardcoding `seo: {}` in the draft save
+- Modify: `src/app/admin/pages/[pageId]/edit/page.tsx` (Task 10) — pass the page's current draft SEO through to `BlockEditor`
 - Test: `tests/unit/openrouter.test.ts`, `tests/component/SeoPanel.test.tsx`
 
 **Interfaces:**
@@ -2855,7 +2857,10 @@ git commit -m "feat: version history UI with one-click rollback"
 - Produces:
   - `suggestSeo(input: { title: string; bodyText: string }): Promise<{ title: string; description: string }>` (`src/lib/openrouter.ts`)
   - `POST /api/seo-suggest` body `{ title: string; bodyText: string }` → `{ title: string; description: string }`
-  - `<SeoPanel pageId={string} initialSeo={{title?: string; description?: string}} bodyText={string} onChange?={(seo) => void} />`
+  - `<SeoPanel pageId={string} initialSeo={Seo} bodyText={string} onChange?={(seo: Seo) => void} />` (imports `Seo` from `@/lib/blocks/schema` rather than redeclaring it)
+  - `BlockEditor` gains an optional `initialSeo?: Seo` prop (defaults to `{}` so Task 10's existing tests, which don't pass it, keep working unchanged) and now saves `{ blocks, seo }` — not `{ blocks, seo: {} }` — in its draft POST body.
+
+> **Plan note (pre-flight ruling):** Task 10 builds `BlockEditor` with a hardcoded `seo: {}` in its save-draft call, and this task's `SeoPanel` was never mounted anywhere in the original draft of this plan — SEO edits would have been silently discarded on every save. Steps 7–8 below fix this by having this task modify `BlockEditor` and the edit page directly, matching the same pattern Task 3 already uses to modify Task 2's `pageVersion.ts`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2987,11 +2992,7 @@ export async function POST(req: NextRequest) {
 'use client'
 
 import { useState } from 'react'
-
-interface Seo {
-  title?: string
-  description?: string
-}
+import type { Seo } from '@/lib/blocks/schema'
 
 export function SeoPanel({
   bodyText,
@@ -3071,11 +3072,102 @@ export function SeoPanel({
 Run: `npm test -- tests/component/SeoPanel.test.tsx`
 Expected: PASS (1 test)
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: Wire `SeoPanel` into `BlockEditor` so SEO edits are actually saved**
+
+In `src/components/admin/BlockEditor.tsx`:
+
+1. Add the import:
+
+```typescript
+import type { Block, Seo } from '@/lib/blocks/schema'
+import { SeoPanel } from './SeoPanel'
+```
+
+(replace the existing `import type { Block } from '@/lib/blocks/schema'` line with the combined import above)
+
+2. Add an `initialSeo` prop and `seo` state, change the function signature to:
+
+```typescript
+export function BlockEditor({
+  pageId,
+  initialBlocks,
+  initialSeo,
+  onSaved,
+}: {
+  pageId: string
+  initialBlocks: Block[]
+  initialSeo?: Seo
+  onSaved?: () => void
+}) {
+  const [blocks, setBlocks] = useState<Block[]>(initialBlocks)
+  const [seo, setSeo] = useState<Seo>(initialSeo ?? {})
+  const [saving, setSaving] = useState(false)
+```
+
+3. Compute a plain-text summary of the blocks for the AI suggestion's context, and update `saveDraft` to send the real `seo` state instead of `{}`:
+
+```typescript
+  const bodyText = blocks
+    .map((b) => ('body' in b ? b.body : 'headline' in b ? b.headline : ''))
+    .filter(Boolean)
+    .join(' ')
+
+  async function saveDraft() {
+    setSaving(true)
+    try {
+      await fetch(`/api/pages/${pageId}/draft`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content: { blocks, seo } }),
+      })
+      onSaved?.()
+    } finally {
+      setSaving(false)
+    }
+  }
+```
+
+4. Render `SeoPanel` in the JSX, just above the "Save draft" button:
+
+```typescript
+      <SeoPanel pageId={pageId} initialSeo={seo} bodyText={bodyText} onChange={setSeo} />
+
+      <button
+        type="button"
+        onClick={saveDraft}
+```
+
+(the existing "Save draft" `<button>` stays exactly as it was — only the line immediately above it changes)
+
+- [ ] **Step 9: Pass the page's draft SEO through from the edit page**
+
+In `src/app/admin/pages/[pageId]/edit/page.tsx`, change:
+
+```typescript
+      <BlockEditor pageId={pageId} initialBlocks={page.draft.blocks} />
+```
+
+to:
+
+```typescript
+      <BlockEditor pageId={pageId} initialBlocks={page.draft.blocks} initialSeo={page.draft.seo} />
+```
+
+- [ ] **Step 10: Re-run the Task 10 and Task 14 component suites to confirm nothing broke**
+
+Run: `npm test -- tests/component/BlockEditor.test.tsx tests/component/SeoPanel.test.tsx`
+Expected: PASS (4 tests total) — Task 10's `BlockEditor.test.tsx` still passes unchanged because `initialSeo` is optional and defaults to `{}`.
+
+- [ ] **Step 11: Verify typecheck**
+
+Run: `npm run typecheck`
+Expected: no errors
+
+- [ ] **Step 12: Commit**
 
 ```bash
-git add src/lib/openrouter.ts src/app/api/seo-suggest src/components/admin/SeoPanel.tsx tests/unit/openrouter.test.ts tests/component/SeoPanel.test.tsx
-git commit -m "feat: AI-assisted SEO suggestions via OpenRouter, accept-to-apply"
+git add src/lib/openrouter.ts src/app/api/seo-suggest src/components/admin/SeoPanel.tsx src/components/admin/BlockEditor.tsx src/app/admin/pages/[pageId]/edit/page.tsx tests/unit/openrouter.test.ts tests/component/SeoPanel.test.tsx
+git commit -m "feat: AI-assisted SEO suggestions via OpenRouter, wired into the block editor"
 ```
 
 ---
