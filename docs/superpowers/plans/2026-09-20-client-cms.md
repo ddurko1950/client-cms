@@ -2755,6 +2755,12 @@ Expected: FAIL — cannot find module `@/components/site/BlockRenderer`
 ```typescript
 import type { Block } from '@/lib/blocks/schema'
 
+const SAFE_HREF = /^(https?:|mailto:|tel:|\/|#)/i
+
+function safeHref(href?: string): string | undefined {
+  return href && SAFE_HREF.test(href) ? href : undefined
+}
+
 export function BlockRenderer({ blocks }: { blocks: Block[] }) {
   return (
     <>
@@ -2766,7 +2772,11 @@ export function BlockRenderer({ blocks }: { blocks: Block[] }) {
                 <h1>{block.headline}</h1>
                 {block.subhead && <p>{block.subhead}</p>}
                 {block.image && <img src={block.image} alt="" />}
-                {block.ctaText && block.ctaHref && <a href={block.ctaHref}>{block.ctaText}</a>}
+                {block.ctaText && safeHref(block.ctaHref) && (
+                  <a href={safeHref(block.ctaHref)} rel="noopener noreferrer">
+                    {block.ctaText}
+                  </a>
+                )}
               </section>
             )
           case 'text':
@@ -2783,7 +2793,7 @@ export function BlockRenderer({ blocks }: { blocks: Block[] }) {
             )
           case 'button':
             return (
-              <a key={block.id} href={block.href} data-style={block.style}>
+              <a key={block.id} href={safeHref(block.href)} data-style={block.style} rel="noopener noreferrer">
                 {block.text}
               </a>
             )
@@ -2802,6 +2812,8 @@ export function BlockRenderer({ blocks }: { blocks: Block[] }) {
 }
 ```
 
+> **Plan note (mid-Task-12 security-scan fix):** the original draft rendered `block.ctaHref`/`block.href` directly as `<a href={...}>` with no scheme validation — an automated security review flagged that a `javascript:` URI stored in either field (via a compromised or careless editor) would execute on click, bypassing the spec's "no raw HTML/JS field" intent. Fixed with a scheme allowlist (`http(s):`, `mailto:`, `tel:`, relative paths, and fragments) applied before rendering either link; a link with a disallowed scheme renders as no `href` at all rather than an executable one.
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- tests/component/BlockRenderer.test.tsx`
@@ -2813,6 +2825,7 @@ Expected: PASS (1 test)
 import { notFound } from 'next/navigation'
 import { draftMode } from 'next/headers'
 import { ObjectId } from 'mongodb'
+import { auth } from '@/lib/auth'
 import { getPageBySlug } from '@/lib/models/page'
 import { BlockRenderer } from '@/components/site/BlockRenderer'
 
@@ -2826,7 +2839,16 @@ export default async function TenantSitePage({
   if (!page) notFound()
 
   const { isEnabled: isPreview } = await draftMode()
-  const content = isPreview ? page.draft : page.published
+
+  let content = page.published
+  if (isPreview) {
+    const session = await auth()
+    const authorizedForThisTenant =
+      session?.user && (session.user.role === 'superadmin' || session.user.tenantId === tenantId)
+    if (authorizedForThisTenant) {
+      content = page.draft
+    }
+  }
 
   if (!content) notFound()
 
@@ -2838,6 +2860,8 @@ export default async function TenantSitePage({
   )
 }
 ```
+
+> **Plan note (mid-Task-12 security-scan fix, Critical):** the original draft did `content = isPreview ? page.draft : page.published` with no check that the previewing session actually belongs to `tenantId`. Next.js Draft Mode is a single global on/off cookie, not scoped to any tenant — once one editor enables it for their own tenant via `/api/preview`, that cookie is set browser-wide, so navigating to `/_sites/{anyOtherTenantId}/{slug}` while it's still on would have leaked that OTHER tenant's unpublished draft content. This is exactly the cross-tenant leak the whole tenant-isolation architecture (Task 6) was built to prevent. Fixed: draft content is only served when Draft Mode is on AND the current session's `tenantId` matches the URL's `tenantId` (or the session is superadmin); otherwise it falls back to `published` (or `notFound()` if there's no published version).
 
 - [ ] **Step 6: Write `src/app/api/preview/route.ts`**
 
