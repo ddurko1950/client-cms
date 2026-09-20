@@ -7,7 +7,7 @@ interface PageListItem {
   publishedVersion: number | null
 }
 
-export function PageList({ pages }: { pages: PageListItem[] }) {
+export function PageList({ pages, tenantId }: { pages: PageListItem[]; tenantId?: string }) {
   return (
     <ul className="divide-y">
       {pages.map((page) => (
@@ -19,7 +19,10 @@ export function PageList({ pages }: { pages: PageListItem[] }) {
               {page.publishedVersion ? `Published v${page.publishedVersion}` : 'Unpublished'}
             </p>
           </div>
-          <Link href={`/admin/pages/${page._id}/edit`} className="text-sm underline">
+          <Link
+            href={tenantId ? `/admin/pages/${page._id}/edit?tenantId=${tenantId}` : `/admin/pages/${page._id}/edit`}
+            className="text-sm underline"
+          >
             Edit
           </Link>
         </li>

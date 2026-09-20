@@ -43,6 +43,7 @@ export default async function AdminHomePage({
           title: p.title,
           publishedVersion: p.publishedVersion,
         }))}
+        tenantId={tenantId.toString()}
       />
     </div>
   )
