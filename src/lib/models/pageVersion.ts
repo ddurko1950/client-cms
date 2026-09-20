@@ -1,11 +1,8 @@
 import { ObjectId } from 'mongodb'
 import { getDb } from '@/lib/mongodb'
+import type { PageContent } from '@/lib/blocks/schema'
 
-// Replaced by the real PageContent import from '@/lib/blocks/schema' in Task 3.
-export interface PageContent {
-  blocks: unknown[]
-  seo: { title?: string; description?: string }
-}
+export type { PageContent }
 
 export interface PageVersionDoc {
   _id: ObjectId
