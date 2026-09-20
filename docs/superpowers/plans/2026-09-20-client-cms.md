@@ -1526,6 +1526,7 @@ git commit -m "feat: tenant-scoped page CRUD and draft-save API routes"
 ```typescript
 // tests/integration/publish.test.ts
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
+import { ObjectId } from 'mongodb'
 import { setupTestDb, teardownTestDb } from '../helpers/db'
 
 beforeAll(setupTestDb)
@@ -1543,7 +1544,7 @@ describe('publish API', () => {
     await saveDraft(tenant._id, page._id, { blocks: [], seo: { title: 'Acme Home' } })
 
     vi.mocked(auth).mockResolvedValue({
-      user: { id: 'u1', email: 'e@acme.com', role: 'editor', tenantId: tenant._id.toString() },
+      user: { id: new ObjectId().toString(), email: 'e@acme.com', role: 'editor', tenantId: tenant._id.toString() },
     } as never)
 
     const { POST } = await import('@/app/api/pages/[pageId]/publish/route')
@@ -1567,7 +1568,7 @@ describe('publish API', () => {
     await saveDraft(tenant._id, page._id, { blocks: [], seo: { title: 'x'.repeat(61) } })
 
     vi.mocked(auth).mockResolvedValue({
-      user: { id: 'u2', email: 'e@beta.com', role: 'editor', tenantId: tenant._id.toString() },
+      user: { id: new ObjectId().toString(), email: 'e@beta.com', role: 'editor', tenantId: tenant._id.toString() },
     } as never)
 
     const { POST } = await import('@/app/api/pages/[pageId]/publish/route')
@@ -1586,13 +1587,13 @@ Expected: FAIL — cannot find module `@/app/api/pages/[pageId]/publish/route`
 - [ ] **Step 3: Write `src/app/api/pages/[pageId]/publish/route.ts`**
 
 ```typescript
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { ObjectId } from 'mongodb'
 import { requireSession, resolveTenantId } from '@/lib/api-auth'
 import { getPage, publishPage } from '@/lib/models/page'
 import { pageContentSchema } from '@/lib/blocks/schema'
 
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ pageId: string }> }) {
+export async function POST(_req: Request, { params }: { params: Promise<{ pageId: string }> }) {
   try {
     const session = await requireSession()
     const tenantId = resolveTenantId(session)
@@ -1614,6 +1615,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pa
   }
 }
 ```
+
+> **Plan note (post-Task-7-blocked ruling):** two fixes vs. the original draft of this task: (1) the route param is typed `Request`, not `NextRequest` — it never reads `req.nextUrl`, and the brief's own test calls it with a plain `Request`. (2) The test mocks now use `new ObjectId().toString()` for `session.user.id` instead of an arbitrary string like `'u1'` — this is the first route to convert `session.id` into an `ObjectId` (for `PageVersion.publishedBy`), and in real usage `session.user.id` genuinely is a Mongo ObjectId string, so the mock needed to become realistic rather than the route needing to change. Task 8's rollback route has the identical `new ObjectId(session.id)` call and needs the same test-mock fix.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1646,6 +1649,7 @@ git commit -m "feat: publish API route with re-validation and version snapshotti
 ```typescript
 // tests/integration/rollback.test.ts
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest'
+import { ObjectId } from 'mongodb'
 import { setupTestDb, teardownTestDb } from '../helpers/db'
 
 beforeAll(setupTestDb)
@@ -1662,7 +1666,7 @@ describe('versions and rollback API', () => {
     const page = await createPage({ tenantId: tenant._id, slug: 'home', title: 'Home' })
 
     vi.mocked(auth).mockResolvedValue({
-      user: { id: 'u1', email: 'e@acme.com', role: 'editor', tenantId: tenant._id.toString() },
+      user: { id: new ObjectId().toString(), email: 'e@acme.com', role: 'editor', tenantId: tenant._id.toString() },
     } as never)
 
     const { POST: publish } = await import('@/app/api/pages/[pageId]/publish/route')
