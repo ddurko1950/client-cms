@@ -2620,6 +2620,14 @@ import { NextResponse } from 'next/server'
 import { put } from '@vercel/blob'
 import { requireSession } from '@/lib/api-auth'
 
+const MAX_SIZE_BYTES = 5 * 1024 * 1024
+const ALLOWED_TYPES: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+}
+
 export async function POST(req: Request) {
   try {
     await requireSession()
@@ -2629,7 +2637,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'file is required' }, { status: 400 })
     }
 
-    const blob = await put(file.name, file, { access: 'public', addRandomSuffix: true })
+    const extension = ALLOWED_TYPES[file.type]
+    if (!extension) {
+      return NextResponse.json({ error: 'Unsupported file type' }, { status: 400 })
+    }
+    if (file.size > MAX_SIZE_BYTES) {
+      return NextResponse.json({ error: 'File too large' }, { status: 400 })
+    }
+
+    const safeName = `${crypto.randomUUID()}.${extension}`
+    const blob = await put(safeName, file, { access: 'public', addRandomSuffix: true, contentType: file.type })
     return NextResponse.json({ url: blob.url })
   } catch (err) {
     if (err instanceof Response) return err
@@ -2638,17 +2655,48 @@ export async function POST(req: Request) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+> **Plan note (post-Task-11 security-scan fix):** the original draft passed `file.name` (client-controlled) directly as the Blob path and had no file-type or size validation — an automated security review flagged this as an unrestricted-file-upload/XSS risk (arbitrary files, including HTML/SVG-with-script, could be uploaded and served publicly), a missing size limit, and a user-controlled-path-in-sink. Fixed by restricting to a whitelist of image MIME types, capping size at 5MB, and generating the Blob filename server-side from a random UUID plus a validated extension — `file.name` is never used as the storage path.
+
+- [ ] **Step 4: Add tests for the new validation**
+
+Add two more `it(...)` blocks inside the existing `describe('upload API', ...)`:
+
+```typescript
+  it('rejects an unsupported file type', async () => {
+    const { auth } = await import('@/lib/auth')
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', role: 'editor', tenantId: 't1', email: 'e@x.com' } } as never)
+
+    const { POST } = await import('@/app/api/upload/route')
+    const form = new FormData()
+    form.set('file', new File(['<script>alert(1)</script>'], 'evil.svg', { type: 'image/svg+xml' }))
+    const res = await POST(new Request('http://localhost', { method: 'POST', body: form }))
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a file larger than the size limit', async () => {
+    const { auth } = await import('@/lib/auth')
+    vi.mocked(auth).mockResolvedValue({ user: { id: 'u1', role: 'editor', tenantId: 't1', email: 'e@x.com' } } as never)
+
+    const { POST } = await import('@/app/api/upload/route')
+    const oversized = new Uint8Array(5 * 1024 * 1024 + 1)
+    const form = new FormData()
+    form.set('file', new File([oversized], 'big.png', { type: 'image/png' }))
+    const res = await POST(new Request('http://localhost', { method: 'POST', body: form }))
+    expect(res.status).toBe(400)
+  })
+```
+
+- [ ] **Step 5: Run test to verify it passes**
 
 Run: `npm test -- tests/integration/upload.test.ts`
-Expected: PASS (2 tests)
+Expected: PASS (4 tests)
 
-- [ ] **Step 5: Verify typecheck**
+- [ ] **Step 6: Verify typecheck**
 
 Run: `npm run typecheck`
 Expected: no errors
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/app/api/upload tests/integration/upload.test.ts
